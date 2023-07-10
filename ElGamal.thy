@@ -108,8 +108,8 @@ begin
 type_synonym ck = "nat" (*s is Zp*)
 type_synonym 'grp' vk = "'grp'"
 type_synonym 'grp' plain = "'grp'"
-type_synonym 'grp' commit = "'grp' *'grp' * 'grp'"
-type_synonym 'grp' "opening" = "nat * nat" (*s and y is Zp*)
+type_synonym 'grp' commit = "'grp' * 'grp'"
+type_synonym "opening" = "nat * nat" (*s and y is Zp*)
 
 definition key_gen :: "(ck \<times> 'grp vk) spmf"
 where 
@@ -118,22 +118,21 @@ where
     return_spmf (s, \<^bold>g [^] s) 
   }" 
 
-definition commit :: "ck \<Rightarrow> 'grp plain \<Rightarrow> ('grp commit \<times> 'grp opening) spmf"
+definition commit :: "ck \<Rightarrow> 'grp plain \<Rightarrow> ('grp commit \<times> opening) spmf"
 where 
   "commit ck m = do {
     y :: nat \<leftarrow> sample_uniform (order G);
-    return_spmf ((\<^bold>g [^] ck, \<^bold>g [^] y, m \<otimes> (\<^bold>g [^] (ck*y))), (ck,y)) 
+    return_spmf ((\<^bold>g [^] y, m \<otimes> (\<^bold>g [^] (ck*y))), (ck,y)) 
   }"
 
-definition verify :: "'grp vk \<Rightarrow> 'grp plain \<Rightarrow> 'grp commit \<Rightarrow> 'grp opening \<Rightarrow> bool"
+definition verify :: "'grp vk \<Rightarrow> 'grp plain \<Rightarrow> 'grp commit \<Rightarrow> opening \<Rightarrow> bool"
 where 
-  "verify v_key m c d = (let (gps, gpy, mgpsy) = c;
-    (s,y) = d
-    in (\<^bold>g [^] s = gps \<and> \<^bold>g [^] y = gpy \<and> m \<otimes> \<^bold>g [^] (s*y) = mgpsy)
-)"
+  "verify v_key m c d = (let (gy, gsy) = c; (s,y) = d in 
+  (\<^bold>g [^] s = v_key \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s*y) = gsy)
+)"                                                    
 
 definition valid_msg :: "'grp plain \<Rightarrow> bool"
-  where "valid_msg msg \<equiv> True"
+  where "valid_msg msg \<equiv> msg \<in> carrier G" (* m \<in> carrier G*)
 
 sublocale elgamal_commit: abstract_commitment key_gen commit verify valid_msg .
 
@@ -208,6 +207,15 @@ proof -
   ultimately show ?thesis sorry
 qed
 
+lemma if_in_carrier: "x \<in> carrier G \<Longrightarrow> y \<in> carrier G \<Longrightarrow> (if b then x else y) \<in> carrier G"
+  by presburger
+
+lemma sample_uniform_one_time_pad_preop:
+  "map_spmf (\<lambda>y. (\<^bold>g [^] y, c \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))
+  = map_spmf (\<lambda>y. (\<^bold>g [^] y, (\<^bold>g [^] (y)))) (sample_uniform (order G))"
+  using DDH_asm.G.sample_uniform_one_time_pad
+  sorry
+
 lemma perfect_hiding:
   shows "spmf (elgamal_commit.hiding_game_ind_cpa \<A>) True - 1/2 = 0"
   including monad_normalisation
@@ -217,6 +225,7 @@ proof -
   have "elgamal_commit.hiding_game_ind_cpa (\<A>1, \<A>2) = TRY do {
     (ck,vk) \<leftarrow> key_gen;
     ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
     b \<leftarrow> coin_spmf;  
     (c,d) \<leftarrow> commit ck (if b then m0 else m1);
     b' \<leftarrow> \<A>2 c \<sigma>;
@@ -226,9 +235,10 @@ proof -
     s :: nat \<leftarrow> sample_uniform (order G);
     let (ck,vk) = (s, \<^bold>g [^] s);
     ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
      b \<leftarrow> coin_spmf; 
     y :: nat \<leftarrow> sample_uniform (order G);
-    let c =(\<^bold>g [^] ck, \<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)));
+    let c =(\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)));
     b' \<leftarrow> \<A>2 c \<sigma>;
     return_spmf (b' = b)} ELSE coin_spmf"
       by(simp add: commit_def key_gen_def)
@@ -236,24 +246,36 @@ proof -
     s :: nat \<leftarrow> sample_uniform (order G);
     let (ck,vk) = (s, \<^bold>g [^] s);
     ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
     b \<leftarrow> coin_spmf; 
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] ck, \<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G));
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G));
     guess :: bool \<leftarrow> \<A>2 z \<sigma>;
     return_spmf(guess = b)} ELSE coin_spmf"
     by(simp add: bind_map_spmf o_def)
- also have "... = TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
-    b \<leftarrow> coin_spmf; 
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] s, \<^bold>g [^] y, \<^bold>g [^] (s*y))) (sample_uniform (order G));
-    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
-    return_spmf(guess = b)} ELSE coin_spmf"
-   by (simp add: sample_uniform_one_time_pad_ext) 
   also have "... = TRY do {
     s :: nat \<leftarrow> sample_uniform (order G);
-    let (ck,vk) = (s, \<^bold>g [^] s);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] ck, \<^bold>g [^] y, \<^bold>g [^] (ck*y))) (sample_uniform (order G));
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    b \<leftarrow> coin_spmf; 
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (s*y)))) (sample_uniform (order G));
+    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
+    return_spmf(guess = b)} ELSE coin_spmf"
+    by simp
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    b \<leftarrow> coin_spmf; 
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y ,(\<^bold>g [^] (y)))) (sample_uniform (order G));
+    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
+    return_spmf(guess = b)} ELSE coin_spmf"
+    unfolding valid_msg_def
+    by (simp add: sample_uniform_one_time_pad_preop)
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, \<^bold>g [^] y)) (sample_uniform (order G));
     guess :: bool \<leftarrow> \<A>2 z \<sigma>;
     map_spmf((=) guess) coin_spmf} ELSE coin_spmf"
       by(simp add: map_spmf_conv_bind_spmf)
@@ -274,12 +296,54 @@ qed
 subsection \<open>Soundness wrt. binding (i.e. a commitment cannot (easily) be resolved to two different messages)\<close>
 
 
+lemma g_pow_i_eq_i_eq: "\<^bold>g [^] (s'::nat) = \<^bold>g [^] s \<longleftrightarrow> s' mod order G = s mod order G"
+proof -
+  have "\<^bold>g [^] (s'::nat) = \<^bold>g [^] s \<longleftrightarrow> [s'=s] (mod order G)"
+    by (rule  DDH_asm.G.pow_generator_eq_iff_cong) (simp add: DDH_asm.G.finite_carrier)
+  then show ?thesis using cong_def by blast
+qed
 
-lemma "(case d of (a,b) \<Rightarrow> f a b) = f (fst d) (snd d)"
-  by (simp add: split_def)
+lemma assert_anding: "TRY do {
+          _ :: unit \<leftarrow> assert_spmf (a);
+            _ :: unit \<leftarrow> assert_spmf (b);
+            return_spmf True
+        } ELSE return_spmf False 
+    = TRY do {
+          _ :: unit \<leftarrow> assert_spmf (a \<and> b);
+          return_spmf True
+      } ELSE return_spmf False"
+  by (simp add: try_bind_assert_spmf)
 
-declare [[show_types]]
-theorem pedersen_bind: "elgamal_commit.bind_advantage \<A> = 0"
+lemma helping_1: "( s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+      \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy) 
+= ( s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                             \<and> y mod order G =y' mod order G)"
+  by (auto simp: g_pow_i_eq_i_eq)
+
+lemma helping_2: "(s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                 \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                 \<and> y mod order G =y' mod order G)
+                 = (s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                  \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                  \<and> y mod order G =y' mod order G \<and>  s' mod order G = s'' mod order G)"
+  by linarith
+
+lemma helping_3 : "(m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' \<and> 
+                                s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                             \<and> y mod order G =y' mod order G \<and>  s' mod order G = s'' mod order G) = False"
+proof -
+  have "(m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' 
+                \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                \<and> y mod order G =y' mod order G \<and>  s' mod order G = s'' mod order G) 
+                = False"
+    by (metis (no_types, lifting) DDH_asm.G.generator_closed DDH_asm.G.nat_pow_closed DDH_asm.G.right_cancel g_pow_i_eq_i_eq mod_mult_cong valid_msg_def)
+  then show ?thesis by blast
+qed
+
+theorem elgamal_bind: "elgamal_commit.bind_advantage \<A> = 0"
   including monad_normalisation
   unfolding abstract_commitment.bind_advantage_def
 proof -
@@ -295,38 +359,104 @@ proof -
     by (simp add: elgamal_commit.bind_game_alt_def)
   also have "\<dots>= TRY do {
     (ck, vk) \<leftarrow> key_gen;
-    (c, m, d, m', d') \<leftarrow> \<A> ck;
+    ((gy,gsy), m, (s,y), m', (s',y')) \<leftarrow> \<A> ck;
     _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m');
-    let b = (case c of (gps, gpy, mgpsy) \<Rightarrow> case d of (s, y) \<Rightarrow> \<^bold>g [^] s = gps \<and> \<^bold>g [^] y = gpy \<and> m \<otimes> \<^bold>g [^] (s * y) = mgpsy);
-    let b' = (case c of (gps, gpy, mgpsy) \<Rightarrow> case d' of (s', y') \<Rightarrow> \<^bold>g [^] s' = gps \<and> \<^bold>g [^] y' = gpy \<and> m' \<otimes> \<^bold>g [^] (s' * y') = mgpsy);
+    let b = verify vk m (gy,gsy) (s,y);
+    let b' = verify vk m' (gy,gsy) (s',y');
     _ :: unit \<leftarrow> assert_spmf (b \<and> b'); 
     return_spmf True} ELSE return_spmf False
     "
-    by (simp add: key_gen_def verify_def)
-  also have "\<dots>= TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    let (ck,vk) = (s, \<^bold>g [^] s);
-    ((gps, gpy, mgpsy), m, (s,y), m', (s',y')) \<leftarrow> \<A> ck;
-    _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m');
-    let b = (\<^bold>g [^] s = gps \<and> \<^bold>g [^] y = gpy \<and> m \<otimes> \<^bold>g [^] (s*y) = mgpsy);
-    let b' = (\<^bold>g [^] s' = gps \<and> \<^bold>g [^] y' = gpy \<and> m' \<otimes> \<^bold>g [^] (s'*y') = mgpsy);
-    _ :: unit \<leftarrow> assert_spmf (b \<and> b'); 
-    return_spmf True} ELSE return_spmf False
-    "
-    by (simp add: split_def key_gen_def verify_def)
+    by (simp add: split_def)
   also have "\<dots> = TRY do {
     s :: nat \<leftarrow> sample_uniform (order G);
-    let (ck,vk) = (s, \<^bold>g [^] s);
-    ((gps, gpy, mgpsy), m, (s,y), m', (s',y')) \<leftarrow> \<A> ck;
+    ((gy,gsy), m, (s',y), m', (s'',y')) \<leftarrow> \<A> s;
     _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m');
-    let b = (\<^bold>g [^] s = gps \<and> \<^bold>g [^] y = gpy \<and> m \<otimes> \<^bold>g [^] (s*y) = mgpsy);
-    let b' = (\<^bold>g [^] s' = gps \<and> \<^bold>g [^] y' = gpy \<and> m' \<otimes> \<^bold>g [^] (s'*y') = mgpsy);
-    _ :: unit \<leftarrow> assert_spmf (b \<and> b'); 
+    _ :: unit \<leftarrow> assert_spmf (\<^bold>g [^] s' = (\<^bold>g [^] s) \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> \<^bold>g [^] s'' = (\<^bold>g [^] s) \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy); 
     return_spmf True} ELSE return_spmf False
     "
-    
-    
-  show "spmf (elgamal_commit.bind_game \<A>) True = 0" sorry
+    by (simp add: verify_def key_gen_def)
+  also have "\<dots> = TRY do {
+     s :: nat \<leftarrow> sample_uniform (order G);
+    TRY do {
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+      TRY do {
+        _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m');
+       _ :: unit \<leftarrow> assert_spmf (\<^bold>g [^] s' = (\<^bold>g [^] s) \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> \<^bold>g [^] s'' = (\<^bold>g [^] s) \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy); 
+        return_spmf True} ELSE return_spmf False
+      } ELSE return_spmf False
+    } ELSE return_spmf False
+    "
+  unfolding split_def
+  by(fold try_bind_spmf_lossless2[OF lossless_return_spmf])simp
+  also have "\<dots> = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    TRY do {
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+      TRY do {
+        _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' \<and> 
+                                (\<^bold>g [^] s' = (\<^bold>g [^] s) \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> \<^bold>g [^] s'' = (\<^bold>g [^] s) \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy)); 
+        return_spmf True} ELSE return_spmf False
+      } ELSE return_spmf False
+    } ELSE return_spmf False
+    "
+    using assert_anding by presburger
+  also have "\<dots> = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+        _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' \<and> 
+                                (\<^bold>g [^] s' = \<^bold>g [^] s \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> \<^bold>g [^] s'' = \<^bold>g [^] s \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy)); 
+        return_spmf True} ELSE return_spmf False
+    "
+   unfolding split_def Let_def
+    by(fold try_bind_spmf_lossless2[OF lossless_return_spmf]) simp
+  also have "\<dots> = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+        _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' \<and> 
+                                s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy); 
+        return_spmf True} ELSE return_spmf False
+    " 
+    using g_pow_i_eq_i_eq by simp
+   also have "\<dots> = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+        _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' \<and> 
+                                s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                             \<and> y mod order G =y' mod order G); 
+        return_spmf True} ELSE return_spmf False
+    " 
+     using helping_1 by algebra
+  also have "\<dots> = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+        _ :: unit \<leftarrow> assert_spmf (m \<noteq> m' \<and> valid_msg m \<and> valid_msg m' \<and> 
+                                s' mod order G = s mod order G \<and> gy = \<^bold>g [^] y \<and> m \<otimes> \<^bold>g [^] (s'*y) = gsy 
+                             \<and> s'' mod order G = s mod order G \<and> gy = \<^bold>g [^] y' \<and> m' \<otimes> \<^bold>g [^] (s''*y') = gsy
+                             \<and> y mod order G =y' mod order G \<and>  s' mod order G = s'' mod order G); 
+        return_spmf True} ELSE return_spmf False
+    " 
+    using helping_2 by algebra
+  also have "\<dots> = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
+        _ :: unit \<leftarrow> assert_spmf (False); 
+        return_spmf True} ELSE return_spmf False
+    " 
+    by (simp add: helping_3)
+  also have "\<dots>= TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s; 
+        return_pmf None} ELSE return_spmf False
+    "
+    by simp
+  finally show "spmf (elgamal_commit.bind_game \<A>) True = 0"
+    sorry
 qed
 
 end
