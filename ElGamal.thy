@@ -159,142 +159,7 @@ theorem abstract_correct:
   shows "elgamal_commit.correct"
   unfolding abstract_commitment.correct_def using correct by blast
 
-subsection \<open>Soundness wrt. hiding (i.e. the adversary can propose two messages, of which one will be
-committed to, and the adversary cannot determine to which one the commitment belongs with more than 
-a 50/50 chance (coin flip))\<close>
-
-thm  spmf.map_comp[symmetric]
-thm o_def
-
-(* 
-Helping Lemma for hiding.
-What I would need for this lemma is that ck (which is s) is also
-from sample_uniform. This is the case for the hiding game, however since first the 
-Adversary has to work on an input that depends on s, although s cannot change in that, I don't know 
-how to lift the sample_uniform bind from s into a map_spmf for s...*)
-lemma sample_uniform_one_time_pad_ext: 
-  "map_spmf (\<lambda>y. (c', \<^bold>g [^] y, c \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))
-  = map_spmf (\<lambda>y. (c',\<^bold>g [^] y, (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))"
-  (is "?lhs = ?rhs")
-proof -
-  have triple_eq: "(\<lambda>y. (c', \<^bold>g [^] y, (\<^bold>g [^] y) [^] ck)) ` {..<order G} = {(c', x, x [^] ck) |x. x \<in> ([^]) \<^bold>g ` {..<order G}}"
-    by blast
-  have "?lhs = map_spmf (\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy')) ?rhs"
-    by (simp add: pmf.map_comp o_def option.map_comp DDH_asm.G.nat_pow_pow)
-  also have "?rhs = spmf_of_set ((\<lambda>y. (c', \<^bold>g [^] y, \<^bold>g [^] (ck*y))) ` {..<order G})"
-    apply (simp add: DDH_asm.G.carrier_conv_generator DDH_asm.G.inj_on_generator sample_uniform_def)
-    apply (rule map_spmf_of_set_inj_on[of "(\<lambda>y. (c', \<^bold>g [^] y, \<^bold>g [^] (ck*y)))" "{..<order G}"])
-    apply (simp add: inj_on_def)
-    apply (metis inj_on_def DDH_asm.G.inj_on_generator)
-    done
-  also have "\<dots>= spmf_of_set ((\<lambda>y. (c', \<^bold>g [^] y, (\<^bold>g [^] y) [^] ck)) ` {..<order G})"
-     by (simp add: DDH_asm.G.nat_pow_pow mult.commute)
-  also have rhs: "\<dots>= spmf_of_set ({(c',x, x [^] ck) | x. x \<in> carrier G})"
-    by (simp add: DDH_asm.G.carrier_conv_generator triple_eq) 
-  also have "map_spmf (\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy' [^] ck)) \<dots> 
-  = spmf_of_set ((\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy' [^] ck)) ` {(c',x, x [^] ck) | x. x \<in> carrier G})"
-    apply(rule map_spmf_of_set_inj_on)
-    apply (simp add: inj_on_def)
-    done
-  moreover have "(\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy' [^] ck)) ` {(c',x, x [^] ck) | x. x \<in> carrier G} 
-    = {(c',x, x [^] ck) | x. x \<in> carrier G}"
-    apply (rule endo_inj_surj)
-      apply (simp add: DDH_asm.G.finite_carrier)
-     prefer 2
-     apply (simp add: inj_on_def)
-    apply (simp add: subset_eq)
-    sorry
-  ultimately show ?thesis sorry
-qed
-
-lemma if_in_carrier: "x \<in> carrier G \<Longrightarrow> y \<in> carrier G \<Longrightarrow> (if b then x else y) \<in> carrier G"
-  by presburger
-
-lemma sample_uniform_one_time_pad_preop:
-  "map_spmf (\<lambda>y. (\<^bold>g [^] y, c \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))
-  = map_spmf (\<lambda>y. (\<^bold>g [^] y, (\<^bold>g [^] (y)))) (sample_uniform (order G))"
-  using DDH_asm.G.sample_uniform_one_time_pad
-  sorry
-
-lemma perfect_hiding:
-  shows "spmf (elgamal_commit.hiding_game_ind_cpa \<A>) True - 1/2 = 0"
-  including monad_normalisation
-proof -
-  obtain \<A>1 \<A>2 where [simp]: "\<A> = (\<A>1, \<A>2)" by(cases \<A>)
-  note [simp] = Let_def split_def 
-  have "elgamal_commit.hiding_game_ind_cpa (\<A>1, \<A>2) = TRY do {
-    (ck,vk) \<leftarrow> key_gen;
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
-    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
-    b \<leftarrow> coin_spmf;  
-    (c,d) \<leftarrow> commit ck (if b then m0 else m1);
-    b' \<leftarrow> \<A>2 c \<sigma>;
-    return_spmf (b' = b)} ELSE coin_spmf"
-      by(simp add: abstract_commitment.hiding_game_ind_cpa_def valid_msg_def)
-  also have "... = TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    let (ck,vk) = (s, \<^bold>g [^] s);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
-    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
-     b \<leftarrow> coin_spmf; 
-    y :: nat \<leftarrow> sample_uniform (order G);
-    let c =(\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)));
-    b' \<leftarrow> \<A>2 c \<sigma>;
-    return_spmf (b' = b)} ELSE coin_spmf"
-      by(simp add: commit_def key_gen_def)
-  also have "... = TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    let (ck,vk) = (s, \<^bold>g [^] s);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
-    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
-    b \<leftarrow> coin_spmf; 
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G));
-    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
-    return_spmf(guess = b)} ELSE coin_spmf"
-    by(simp add: bind_map_spmf o_def)
-  also have "... = TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
-    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
-    b \<leftarrow> coin_spmf; 
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (s*y)))) (sample_uniform (order G));
-    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
-    return_spmf(guess = b)} ELSE coin_spmf"
-    by simp
-  also have "... = TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
-    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
-    b \<leftarrow> coin_spmf; 
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y ,(\<^bold>g [^] (y)))) (sample_uniform (order G));
-    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
-    return_spmf(guess = b)} ELSE coin_spmf"
-    unfolding valid_msg_def
-    by (simp add: sample_uniform_one_time_pad_preop)
-  also have "... = TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
-    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
-    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, \<^bold>g [^] y)) (sample_uniform (order G));
-    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
-    map_spmf((=) guess) coin_spmf} ELSE coin_spmf"
-      by(simp add: map_spmf_conv_bind_spmf)
-  also have "... = coin_spmf"
-     by(auto simp add: bind_spmf_const map_eq_const_coin_spmf try_bind_spmf_lossless2' scale_bind_spmf weight_spmf_le_1 scale_scale_spmf)
-  ultimately show ?thesis by(simp add: spmf_of_set)
-qed
-
-theorem abstract_perfect_hiding: 
-  shows "elgamal_commit.perfect_hiding_ind_cpa \<A>"
-proof-
-  have "spmf (elgamal_commit.hiding_game_ind_cpa \<A>) True - 1/2 = 0" 
-    using perfect_hiding by fastforce
-  thus ?thesis 
-    by(simp add: abstract_commitment.perfect_hiding_ind_cpa_def abstract_commitment.hiding_advantage_ind_cpa_def)
-qed
-
-subsection \<open>Soundness wrt. binding (i.e. a commitment cannot (easily) be resolved to two different messages)\<close>
-
+subsection \<open>Soundness wrt. binding (i.e. a commitment cannot be resolved to two different messages)\<close>
 
 lemma g_pow_i_eq_i_eq: "\<^bold>g [^] (s'::nat) = \<^bold>g [^] s \<longleftrightarrow> s' mod order G = s mod order G"
 proof -
@@ -455,8 +320,144 @@ proof -
         return_pmf None} ELSE return_spmf False
     "
     by simp
-  finally show "spmf (elgamal_commit.bind_game \<A>) True = 0"
+ also have "\<dots>= return_spmf False
+    "
+   by (simp add: split_def)
+  finally show "spmf (elgamal_commit.bind_game \<A>) True = 0" by fastforce
+qed
+
+subsection \<open>Soundness wrt. hiding (i.e. the adversary can propose two messages, of which one will be
+committed to, and the adversary cannot determine to which one the commitment belongs with more than 
+a 50/50 chance (coin flip))\<close>
+
+thm  spmf.map_comp[symmetric]
+thm o_def
+
+(* 
+Helping Lemma for hiding.
+What I would need for this lemma is that ck (which is s) is also
+from sample_uniform. This is the case for the hiding game, however since first the 
+Adversary has to work on an input that depends on s, although s cannot change in that, I don't know 
+how to lift the sample_uniform bind from s into a map_spmf for s...*)
+lemma sample_uniform_one_time_pad_ext: 
+  "map_spmf (\<lambda>y. (c', \<^bold>g [^] y, c \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))
+  = map_spmf (\<lambda>y. (c',\<^bold>g [^] y, (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))"
+  (is "?lhs = ?rhs")
+proof -
+  have triple_eq: "(\<lambda>y. (c', \<^bold>g [^] y, (\<^bold>g [^] y) [^] ck)) ` {..<order G} = {(c', x, x [^] ck) |x. x \<in> ([^]) \<^bold>g ` {..<order G}}"
+    by blast
+  have "?lhs = map_spmf (\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy')) ?rhs"
+    by (simp add: pmf.map_comp o_def option.map_comp DDH_asm.G.nat_pow_pow)
+  also have "?rhs = spmf_of_set ((\<lambda>y. (c', \<^bold>g [^] y, \<^bold>g [^] (ck*y))) ` {..<order G})"
+    apply (simp add: DDH_asm.G.carrier_conv_generator DDH_asm.G.inj_on_generator sample_uniform_def)
+    apply (rule map_spmf_of_set_inj_on[of "(\<lambda>y. (c', \<^bold>g [^] y, \<^bold>g [^] (ck*y)))" "{..<order G}"])
+    apply (simp add: inj_on_def)
+    apply (metis inj_on_def DDH_asm.G.inj_on_generator)
+    done
+  also have "\<dots>= spmf_of_set ((\<lambda>y. (c', \<^bold>g [^] y, (\<^bold>g [^] y) [^] ck)) ` {..<order G})"
+     by (simp add: DDH_asm.G.nat_pow_pow mult.commute)
+  also have rhs: "\<dots>= spmf_of_set ({(c',x, x [^] ck) | x. x \<in> carrier G})"
+    by (simp add: DDH_asm.G.carrier_conv_generator triple_eq) 
+  also have "map_spmf (\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy' [^] ck)) \<dots> 
+  = spmf_of_set ((\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy' [^] ck)) ` {(c',x, x [^] ck) | x. x \<in> carrier G})"
+    apply(rule map_spmf_of_set_inj_on)
+    apply (simp add: inj_on_def)
+    done
+  moreover have "(\<lambda>x. let (c',gy, gy') = x in (c',gy, c \<otimes> gy' [^] ck)) ` {(c',x, x [^] ck) | x. x \<in> carrier G} 
+    = {(c',x, x [^] ck) | x. x \<in> carrier G}"
+    apply (rule endo_inj_surj)
+      apply (simp add: DDH_asm.G.finite_carrier)
+     prefer 2
+     apply (simp add: inj_on_def)
+    apply (simp add: subset_eq)
     sorry
+  ultimately show ?thesis sorry
+qed
+
+lemma if_in_carrier: "x \<in> carrier G \<Longrightarrow> y \<in> carrier G \<Longrightarrow> (if b then x else y) \<in> carrier G"
+  by presburger
+
+lemma sample_uniform_one_time_pad_preop:
+  "map_spmf (\<lambda>y. (\<^bold>g [^] y, c \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G))
+  = map_spmf (\<lambda>y. (\<^bold>g [^] y, (\<^bold>g [^] (y)))) (sample_uniform (order G))"
+  using DDH_asm.G.sample_uniform_one_time_pad
+  sorry
+
+lemma perfect_hiding:
+  shows "spmf (elgamal_commit.hiding_game_ind_cpa \<A>) True - 1/2 = 0"
+  including monad_normalisation
+proof -
+  obtain \<A>1 \<A>2 where [simp]: "\<A> = (\<A>1, \<A>2)" by(cases \<A>)
+  note [simp] = Let_def split_def 
+  have "elgamal_commit.hiding_game_ind_cpa (\<A>1, \<A>2) = TRY do {
+    (ck,vk) \<leftarrow> key_gen;
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    b \<leftarrow> coin_spmf;  
+    (c,d) \<leftarrow> commit ck (if b then m0 else m1);
+    b' \<leftarrow> \<A>2 c \<sigma>;
+    return_spmf (b' = b)} ELSE coin_spmf"
+      by(simp add: abstract_commitment.hiding_game_ind_cpa_def valid_msg_def)
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    let (ck,vk) = (s, \<^bold>g [^] s);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+     b \<leftarrow> coin_spmf; 
+    y :: nat \<leftarrow> sample_uniform (order G);
+    let c =(\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)));
+    b' \<leftarrow> \<A>2 c \<sigma>;
+    return_spmf (b' = b)} ELSE coin_spmf"
+      by(simp add: commit_def key_gen_def)
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    let (ck,vk) = (s, \<^bold>g [^] s);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 vk;
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    b \<leftarrow> coin_spmf; 
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (ck*y)))) (sample_uniform (order G));
+    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
+    return_spmf(guess = b)} ELSE coin_spmf"
+    by(simp add: bind_map_spmf o_def)
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    b \<leftarrow> coin_spmf; 
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, (if b then m0 else m1) \<otimes> (\<^bold>g [^] (s*y)))) (sample_uniform (order G));
+    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
+    return_spmf(guess = b)} ELSE coin_spmf"
+    by simp
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    b \<leftarrow> coin_spmf; 
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y ,(\<^bold>g [^] (y)))) (sample_uniform (order G));
+    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
+    return_spmf(guess = b)} ELSE coin_spmf"
+    unfolding valid_msg_def
+    by (simp add: sample_uniform_one_time_pad_preop)
+  also have "... = TRY do {
+    s :: nat \<leftarrow> sample_uniform (order G);
+    ((m0, m1), \<sigma>) \<leftarrow> \<A>1 (\<^bold>g [^] s);
+    _ :: unit \<leftarrow> assert_spmf (valid_msg m0 \<and> valid_msg m1);
+    z \<leftarrow> map_spmf (\<lambda>y. (\<^bold>g [^] y, \<^bold>g [^] y)) (sample_uniform (order G));
+    guess :: bool \<leftarrow> \<A>2 z \<sigma>;
+    map_spmf((=) guess) coin_spmf} ELSE coin_spmf"
+      by(simp add: map_spmf_conv_bind_spmf)
+  also have "... = coin_spmf"
+     by(auto simp add: bind_spmf_const map_eq_const_coin_spmf try_bind_spmf_lossless2' scale_bind_spmf weight_spmf_le_1 scale_scale_spmf)
+  ultimately show ?thesis by(simp add: spmf_of_set)
+qed
+
+theorem abstract_perfect_hiding: 
+  shows "elgamal_commit.perfect_hiding_ind_cpa \<A>"
+proof-
+  have "spmf (elgamal_commit.hiding_game_ind_cpa \<A>) True - 1/2 = 0" 
+    using perfect_hiding by fastforce
+  thus ?thesis 
+    by(simp add: abstract_commitment.perfect_hiding_ind_cpa_def abstract_commitment.hiding_advantage_ind_cpa_def)
 qed
 
 end
