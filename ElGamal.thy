@@ -1,16 +1,14 @@
 theory ElGamal
-  imports "CryptHOL.CryptHOL" "CryptHOL.Cyclic_Group" "Sigma_Commit_Crypto.Commitment_Schemes" "Berlekamp_Zassenhaus.Finite_Field_Factorization"
-  "HOL-Number_Theory.Cong"   "Sigma_Commit_Crypto.Cyclic_Group_Ext" 
-  "Sigma_Commit_Crypto.Number_Theory_Aux"
-  "Sigma_Commit_Crypto.Uniform_Sampling"
+  imports "CryptHOL.CryptHOL" "CryptHOL.Cyclic_Group" "Sigma_Commit_Crypto.Commitment_Schemes"  
+ "HOL-Number_Theory.Cong"   "Sigma_Commit_Crypto.Cyclic_Group_Ext" 
   "HOL-Algebra.Coset"
 begin
 
 text \<open>I formalize the ElGamal Commitment Scheme and show its correctness and soundness wrt. 
-it's hiding and binding property. 
+it's binding and hiding property. 
 Sigma_Commit_Crypto.Commitment_Schemes gives the basis which outlines how commitment 
 schemes are formalized in Isabelle. On top of this template I define the relevant functions and show 
-the game-based proofs of interest, namely correctness and the hiding and the binding property.\<close>
+the game-based proofs of interest, namely correctness and the binding and the hiding property.\<close>
 
 section \<open>Assumptions\<close>
 
@@ -164,7 +162,7 @@ subsection \<open>Soundness wrt. binding (i.e. a commitment cannot be resolved t
 lemma g_pow_i_eq_i_eq: "\<^bold>g [^] (s'::nat) = \<^bold>g [^] s \<longleftrightarrow> s' mod order G = s mod order G"
 proof -
   have "\<^bold>g [^] (s'::nat) = \<^bold>g [^] s \<longleftrightarrow> [s'=s] (mod order G)"
-    by (rule  DDH_asm.G.pow_generator_eq_iff_cong) (simp add: DDH_asm.G.finite_carrier)
+    by (rule  DDH_asm.G.pow_generator_eq_iff_cong) (fact DDH_asm.G.finite_carrier)
   then show ?thesis using cong_def by blast
 qed
 
@@ -208,6 +206,10 @@ proof -
   then show ?thesis by blast
 qed
 
+text \<open>This theorem shows that ElGamal actually has perfect binding. We don't reduce to an assumption 
+(e.g. DDH), instead we show that for every Adversary, however strong they maybe 
+(e.g. capable of DDH in the Group G) the advantage is zero. Meaning no Commitment every can be 
+resolved to two different messages\<close>
 theorem elgamal_bind: "elgamal_commit.bind_advantage \<A> = 0"
   including monad_normalisation
   unfolding abstract_commitment.bind_advantage_def
@@ -296,7 +298,7 @@ proof -
                              \<and> y mod order G =y' mod order G); 
         return_spmf True} ELSE return_spmf False
     " 
-     using helping_1 by algebra
+     using helping_1 by presburger
   also have "\<dots> = TRY do {
     s :: nat \<leftarrow> sample_uniform (order G);
       ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
@@ -306,7 +308,7 @@ proof -
                              \<and> y mod order G =y' mod order G \<and>  s' mod order G = s'' mod order G); 
         return_spmf True} ELSE return_spmf False
     " 
-    using helping_2 by algebra
+    using helping_2 by presburger
   also have "\<dots> = TRY do {
     s :: nat \<leftarrow> sample_uniform (order G);
       ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s;
@@ -314,12 +316,6 @@ proof -
         return_spmf True} ELSE return_spmf False
     " 
     by (simp add: helping_3)
-  also have "\<dots>= TRY do {
-    s :: nat \<leftarrow> sample_uniform (order G);
-      ((gy,gsy), m, (s', y), m', (s'', y')) \<leftarrow> \<A> s; 
-        return_pmf None} ELSE return_spmf False
-    "
-    by simp
  also have "\<dots>= return_spmf False
     "
    by (simp add: split_def)
@@ -459,6 +455,11 @@ proof-
   thus ?thesis 
     by(simp add: abstract_commitment.perfect_hiding_ind_cpa_def abstract_commitment.hiding_advantage_ind_cpa_def)
 qed
+
+text \<open>After all this proofs, I've realized that ElGamal is not actually perfectly hiding, but just 
+computationally. This explains why the proof got so hard at some point.. instead I should have 
+gone for a reduction to the DDH assumption, which would have probably yielded a result much quicker 
+than what I've put into this perfect hiding proof.\<close>
 
 end
 
