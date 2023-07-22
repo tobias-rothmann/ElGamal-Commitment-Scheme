@@ -4,8 +4,8 @@
 [Isabelle/HOL](https://isabelle.in.tum.de/) is an open-source interactive theorem prover. The version used for this formalization is Isabelle2022 (as of writing this the most recent version).
 
 ## Reference Paper
-This work is based on the original [paper](https://ieeexplore.ieee.org/document/1057074):
-T. Elgamal, "A public key cryptosystem and a signature scheme based on discrete logarithms," in IEEE Transactions on Information Theory, vol. 31, no. 4, pp. 469-472, July 1985, doi: 10.1109/TIT.1985.1057074.
+This work is based on the original [paper](https://ieeexplore.ieee.org/document/1057074):  
+T. Elgamal, "A public key cryptosystem and a signature scheme based on discrete logarithms," in IEEE Transactions on Information Theory, vol. 31, no. 4, pp. 469-472, July 1985, doi: 10.1109/TIT.1985.1057074.  
 However, it is adopted to be a commitment scheme instead of encryption. 
 
 ## Concept
